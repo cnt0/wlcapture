@@ -2,11 +2,13 @@
 
 #define _GNU_SOURCE
 #include <getopt.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 
 #include "ext-image-capture-source-v1.h"
 #include "ext-image-copy-capture-v1.h"
+#include "ext-foreign-toplevel-list-v1.h"
 
 #include <wayland-client.h>
 
@@ -18,14 +20,21 @@ const struct wl_interface *capture_interface =
     &ext_output_image_capture_source_manager_v1_interface;
 const struct wl_interface *copy_interface =
     &ext_image_copy_capture_manager_v1_interface;
+const struct wl_interface *foreign_interface =
+    &ext_foreign_toplevel_image_capture_source_manager_v1_interface;
 
 // this is ridiculous
 typedef struct ext_output_image_capture_source_manager_v1 *capture_manager_t;
 typedef struct ext_image_copy_capture_manager_v1 *copy_manager_t;
 typedef struct ext_image_copy_capture_session_v1 *capture_session_t;
 typedef struct ext_image_copy_capture_frame_v1 *capture_frame_t;
+typedef struct ext_foreign_toplevel_image_capture_source_manager_v1
+    *foreign_manager_t;
+
 #define capture_manager_create_source \
   ext_output_image_capture_source_manager_v1_create_source
+#define foreign_manager_create_source \
+  ext_foreign_toplevel_image_capture_source_manager_v1_create_source
 #define copy_manager_create_session \
   ext_image_copy_capture_manager_v1_create_session
 #define copy_session_add_listener ext_image_copy_capture_session_v1_add_listener
@@ -35,6 +44,8 @@ struct app_state {
   struct wl_display *display;
   struct wl_output *output;
   capture_manager_t capture_manager;
+  foreign_manager_t foreign_manager;
+  struct ext_foreign_toplevel_list_v1 *toplevel_list;
   copy_manager_t copy_manager;
   struct wl_shm *shm;
 };
@@ -59,6 +70,14 @@ static void registry_handle_global(void *data,
   }
   if (!strcmp(interface, wl_shm_interface.name)) {
     state->shm = wl_registry_bind(registry, name, &wl_shm_interface, version);
+  }
+  if (!strcmp(interface, foreign_interface->name)) {
+    state->foreign_manager =
+        wl_registry_bind(registry, name, foreign_interface, version);
+  }
+  if (!strcmp(interface, ext_foreign_toplevel_list_v1_interface.name)) {
+    state->toplevel_list = wl_registry_bind(
+        registry, name, &ext_foreign_toplevel_list_v1_interface, version);
   }
 }
 static void registry_handle_global_remove(void *data,
@@ -190,6 +209,97 @@ static const struct ext_image_copy_capture_frame_v1_listener frame_listener = {
     .failed = frame_failed,
 };
 
+struct toplevel_handle_info {
+  struct ext_foreign_toplevel_handle_v1 *handle;
+  char app_id[1024];
+  size_t app_id_len;
+  char title[1024];
+  size_t title_len;
+  char uid[1024];
+  size_t uid_len;
+  uint8_t closed;
+  uint8_t done;
+};
+
+static void toplevel_handle_closed(
+    void *data,
+    struct ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel_handle_v1) {
+  struct toplevel_handle_info *state = data;
+  ext_foreign_toplevel_handle_v1_destroy(state->handle);
+  printf("OK destroyed %s\n", state->app_id);
+  state->closed = 1;
+}
+static void toplevel_handle_done(
+    void *data,
+    struct ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel_handle_v1) {
+  struct toplevel_handle_info *state = data;
+  state->done = 1;
+}
+static void toplevel_handle_title(
+    void *data,
+    struct ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel_handle_v1,
+    const char *title) {
+  struct toplevel_handle_info *state = data;
+  state->title_len = strnlen(title, 1024);
+  memcpy(state->title, title, state->title_len);
+}
+static void toplevel_handle_app_id(
+    void *data,
+    struct ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel_handle_v1,
+    const char *app_id) {
+  struct toplevel_handle_info *state = data;
+  state->app_id_len = strnlen(app_id, 1024);
+  memcpy(state->app_id, app_id, state->app_id_len);
+}
+static void toplevel_handle_uniq_id(
+    void *data,
+    struct ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel_handle_v1,
+    const char *uniq_id) {
+  struct toplevel_handle_info *state = data;
+  state->uid_len = strnlen(uniq_id, 1024);
+  memcpy(state->uid, uniq_id, state->uid_len);
+}
+
+static const struct ext_foreign_toplevel_handle_v1_listener
+    toplevel_handle_listener = {
+        .closed = toplevel_handle_closed,
+        .done = toplevel_handle_done,
+        .title = toplevel_handle_title,
+        .app_id = toplevel_handle_app_id,
+        .identifier = toplevel_handle_uniq_id,
+};
+
+struct toplevel_data {
+  struct toplevel_handle_info handles[1024];
+  size_t n_handles;
+  uint8_t finished;
+};
+
+static void toplevel_add_handle(
+    void *data,
+    struct ext_foreign_toplevel_list_v1 *ext_foreign_toplevel_list_v1,
+    struct ext_foreign_toplevel_handle_v1 *toplevel) {
+  struct toplevel_data *state = data;
+  struct toplevel_handle_info *current_info =
+      &state->handles[state->n_handles++];
+  current_info->handle = toplevel;
+  ext_foreign_toplevel_handle_v1_add_listener(
+      toplevel, &toplevel_handle_listener, current_info);
+}
+
+static void toplevel_finished(
+    void *data,
+    struct ext_foreign_toplevel_list_v1 *ext_foreign_toplevel_list_v1) {
+  struct toplevel_data *state = data;
+  state->finished = 1;
+}
+
+static const struct ext_foreign_toplevel_list_v1_listener
+    toplevel_list_listener = {
+        .toplevel = toplevel_add_handle,
+        .finished = toplevel_finished,
+};
+
 static enum AVPixelFormat get_av_format(uint32_t wl_shm_format) {
   switch (wl_shm_format) {
     case WL_SHM_FORMAT_XRGB8888:
@@ -283,6 +393,9 @@ static enum AVPixelFormat av_get_desired_format(const AVCodec *codec,
 
 static void app_state_free(struct app_state *state) {
   wl_shm_destroy(state->shm);
+  ext_foreign_toplevel_list_v1_destroy(state->toplevel_list);
+  ext_foreign_toplevel_image_capture_source_manager_v1_destroy(
+      state->foreign_manager);
   ext_image_copy_capture_manager_v1_destroy(state->copy_manager);
   ext_output_image_capture_source_manager_v1_destroy(state->capture_manager);
   wl_output_destroy(state->output);
@@ -291,7 +404,9 @@ static void app_state_free(struct app_state *state) {
 }
 
 static void capture_src_free(struct ext_image_capture_source_v1 **src) {
-  ext_image_capture_source_v1_destroy(*src);
+  if (*src) {
+    ext_image_capture_source_v1_destroy(*src);
+  }
 }
 
 static void capture_session_free(
@@ -312,19 +427,29 @@ static void file_close(FILE **file) {
   fclose(*file);
 }
 
-enum opts {
-  OPT_CODEC,
-  OPT_CODEC_OPTS,
-  OPT_HELP,
-  OPT_LAST
-};
+static void toplevel_data_free(struct toplevel_data *toplevels) {
+  for (size_t i = 0; i < toplevels->n_handles; ++i) {
+    struct toplevel_handle_info *entry = toplevels->handles + i;
+    if (entry->closed == 1) {
+      // already destroyed
+      return;
+    }
+    ext_foreign_toplevel_handle_v1_destroy(entry->handle);
+  }
+}
+
+enum opts { OPT_CODEC, OPT_CODEC_OPTS, OPT_UID, OPT_HELP, OPT_LAST };
 
 char HELP[] =
-    "wlcapture [--codec=CODEC] [--codec-opts=key1=value1,...] [OUTPUT_FILE]\n\n"
+    "wlcapture [--codec=CODEC] [--codec-opts=key1=value1,...] [--uid=UID] "
+    "[OUTPUT_FILE]\n\n"
     "Default CODEC is libjxl (JPEG XL).\n"
     "You can try any codec from `ffmpeg -encoders` command.\n\n"
     "Check the list of supported options for given codec here:\n"
     "https://ffmpeg.org/ffmpeg-codecs.html\n\n"
+    "if --uid is given then the window with UID will be captured\n"
+    "UID is foreign toplevel identifier, in sway terminology\n"
+    "you can find it in `swaymsg -t get_tree -r`\n\n"
     "OUTPUT_FILE: where to save the encoded image. Possible values:\n"
     "(not given)\tprint binary data to stdout\n"
     "-\t\tprint binary data to stdout\n"
@@ -334,6 +459,7 @@ int main(int argc, char *argv[]) {
   static struct option opts[] = {
       {"codec", required_argument, NULL, OPT_CODEC},
       {"codec-opts", required_argument, NULL, OPT_CODEC_OPTS},
+      {"uid", required_argument, NULL, OPT_UID},
       {"help", no_argument, NULL, OPT_HELP},
       {0, 0, 0, 0},
   };
@@ -341,6 +467,8 @@ int main(int argc, char *argv[]) {
   const AVCodec *codec = NULL;
   AVDictionary *codec_opts __attribute__((cleanup(av_dict_free))) = NULL;
   FILE *outfile __attribute__((__cleanup__(file_close))) = stdout;
+  char uid[1024] = {0};
+  size_t uid_len = 0;
 
   int n_opts;
   int c;
@@ -357,6 +485,10 @@ int main(int argc, char *argv[]) {
         if (av_dict_parse_string(&codec_opts, optarg, "=", ",", 0)) {
           printf("Cannot parse codec opts string '%s'\n", optarg);
         }
+        break;
+      case OPT_UID:
+        uid_len = strnlen(optarg, 1024);
+        memcpy(uid, optarg, uid_len);
         break;
       case OPT_HELP:
         puts(HELP);
@@ -397,9 +529,29 @@ int main(int argc, char *argv[]) {
   wl_display_roundtrip(wl_state.display);
 
   struct ext_image_capture_source_v1 *src
-      __attribute__((cleanup(capture_src_free))) =
-          capture_manager_create_source(wl_state.capture_manager,
+      __attribute__((cleanup(capture_src_free))) = NULL;
+
+  if (uid_len == 0) {
+    src = capture_manager_create_source(wl_state.capture_manager,
                                         wl_state.output);
+  } else {
+    struct toplevel_data tl_data
+        __attribute__((cleanup(toplevel_data_free))) = {0};
+    ext_foreign_toplevel_list_v1_add_listener(
+        wl_state.toplevel_list, &toplevel_list_listener, &tl_data);
+    for (int done = 0; done == 0;) {
+      wl_display_roundtrip(wl_state.display);
+      for (size_t i = 0; i < tl_data.n_handles; ++i) {
+        struct toplevel_handle_info *entry = tl_data.handles + i;
+        if (!strncmp(entry->uid, uid, uid_len)) {
+          done = 1;
+          src = foreign_manager_create_source(wl_state.foreign_manager,
+                                              entry->handle);
+          break;
+        }
+      }
+    }
+  }
 
   struct ext_image_copy_capture_session_v1 *session
       __attribute__((cleanup(capture_session_free))) =
