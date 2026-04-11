@@ -1,6 +1,7 @@
 #include <unistd.h>
 
 #define _GNU_SOURCE
+#include <getopt.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 
@@ -306,16 +307,90 @@ static void frame_free(struct ext_image_copy_capture_frame_v1 **frame) {
   ext_image_copy_capture_frame_v1_destroy(*frame);
 }
 
+static void file_close(FILE **file) {
+  fclose(*file);
+}
+
+enum opts {
+  OPT_CODEC,
+  OPT_CODEC_OPTS,
+  OPT_HELP,
+  OPT_LAST
+};
+
+char HELP[] =
+    "wlcapture [--codec=CODEC] [--codec-opts=key1=value1,...] [OUTPUT_FILE]\n\n"
+    "Default CODEC is libjxl (JPEG XL).\n"
+    "You can try any codec from `ffmpeg -encoders` command.\n\n"
+    "Check the list of supported options for given codec here:\n"
+    "https://ffmpeg.org/ffmpeg-codecs.html\n\n"
+    "OUTPUT_FILE: where to save the encoded image. Possible values:\n"
+    "(not given)\tprint binary data to stdout\n"
+    "-\t\tprint binary data to stdout\n"
+    "some path\tsave image to that path";
+
 int main(int argc, char *argv[]) {
+  static struct option opts[] = {
+      {"codec", required_argument, NULL, OPT_CODEC},
+      {"codec-opts", required_argument, NULL, OPT_CODEC_OPTS},
+      {"help", no_argument, NULL, OPT_HELP},
+      {0, 0, 0, 0},
+  };
+
+  const AVCodec *codec = NULL;
+  AVDictionary *codec_opts __attribute__((cleanup(av_dict_free))) = NULL;
+  FILE *outfile __attribute__((__cleanup__(file_close))) = stdout;
+
+  int n_opts;
+  int c;
+  while ((c = getopt_long(argc, argv, "", opts, &n_opts)) != -1) {
+    switch (c) {
+      case OPT_CODEC:
+        codec = avcodec_find_encoder_by_name(optarg);
+        if (!codec) {
+          printf("Codec '%s' not found", optarg);
+          return EXIT_FAILURE;
+        }
+        break;
+      case OPT_CODEC_OPTS:
+        if (av_dict_parse_string(&codec_opts, optarg, "=", ",", 0)) {
+          printf("Cannot parse codec opts string '%s'\n", optarg);
+        }
+        break;
+      case OPT_HELP:
+        puts(HELP);
+        return EXIT_SUCCESS;
+      default:
+        puts("Unknown option");
+        return EXIT_FAILURE;
+    }
+  }
+  if (optind < argc && strcmp(argv[optind], "-")) {
+    outfile = fopen(argv[optind], "wb");
+  }
+  if (!outfile) {
+    puts("Cannot open output file for writing");
+    return EXIT_FAILURE;
+  }
+
+  // default value for codec
+  if (!codec) {
+    codec = avcodec_find_encoder_by_name("libjxl");
+    if (!codec) {
+      puts("Codec 'libjxl' not found");
+      return EXIT_FAILURE;
+    }
+  }
+
   struct app_state wl_state __attribute__((cleanup(app_state_free))) = {0};
 
   wl_state.display = wl_display_connect(NULL);
   if (wl_state.display == NULL) {
-    exit(EXIT_FAILURE);
+    return EXIT_FAILURE;
   }
   wl_state.registry = wl_display_get_registry(wl_state.display);
   if (wl_state.registry == NULL) {
-    exit(EXIT_FAILURE);
+    return EXIT_FAILURE;
   }
   wl_registry_add_listener(wl_state.registry, &registry_listener, &wl_state);
   wl_display_roundtrip(wl_state.display);
@@ -360,15 +435,8 @@ int main(int argc, char *argv[]) {
     wl_display_dispatch(wl_state.display);
   }
 
-  const AVCodec *codec = avcodec_find_encoder_by_name("libjxl");
-  if (!codec) {
-    puts("JXL not found");
-    return EXIT_FAILURE;
-  }
-  AVDictionary *libjxl_opts __attribute__((cleanup(av_dict_free))) = NULL;
-
   // lossless JXL
-  av_dict_set(&libjxl_opts, "distance", "0.0", 0);
+  // av_dict_set(&libjxl_opts, "distance", "0.0", 0);
 
   const enum AVPixelFormat av_tgt_fmt =
       av_get_desired_format(codec, shm_buf.pixel_format);
@@ -387,7 +455,7 @@ int main(int argc, char *argv[]) {
   ctx->color_trc = AVCOL_TRC_BT709;
   ctx->colorspace = AVCOL_SPC_RGB;
 
-  ret = avcodec_open2(ctx, codec, &libjxl_opts);
+  ret = avcodec_open2(ctx, codec, &codec_opts);
   if (ret < 0) {
     printf("Can't open codec: %d\n", ret);
     return EXIT_FAILURE;
@@ -436,11 +504,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
   if (avcodec_receive_packet(ctx, pkt) == 0) {
-    FILE *f = fopen("screen.jxl", "wb");
-    if (f) {
-      fwrite(pkt->data, 1, pkt->size, f);
-      fclose(f);
-    }
+    fwrite(pkt->data, 1, pkt->size, outfile);
     av_packet_unref(pkt);
   }
 }
