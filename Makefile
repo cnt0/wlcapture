@@ -4,7 +4,10 @@ protos ?= $(shell pkg-config --variable=pkgdatadir wayland-protocols)
 PKGCONF_DEPS := wayland-client libavutil libavcodec libswscale
 
 LDLIBS += $(shell pkg-config --libs $(PKGCONF_DEPS))
-CFLAGS += -MMD -MP $(shell pkg-config --cflags $(PKGCONF_DEPS))
+CFLAGS += -std=c23 -MMD -MP $(shell pkg-config --cflags $(PKGCONF_DEPS))
+
+# CFLAGS += -fsanitize=address,undefined
+# LDFLAGS += -fsanitize=address,undefined
 
 PROTO_HEADERS := ext-image-capture-source-v1.h ext-image-copy-capture-v1.h ext-foreign-toplevel-list-v1.h
 PROTO_OBJECTS := ext-image-capture-source-v1.o ext-image-copy-capture-v1.o ext-foreign-toplevel-list-v1.o
