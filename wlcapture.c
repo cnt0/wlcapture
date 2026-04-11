@@ -1,14 +1,7 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <threads.h>
-
-#include <fcntl.h>
 #include <unistd.h>
 
 #define _GNU_SOURCE
 #include <sys/mman.h>
-#include <sys/sysmacros.h>
 #include <sys/types.h>
 
 #include "ext-image-capture-source-v1.h"
@@ -17,8 +10,6 @@
 #include <wayland-client.h>
 
 #include <libavcodec/avcodec.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/hwcontext_drm.h>
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 
