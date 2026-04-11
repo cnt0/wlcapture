@@ -109,9 +109,10 @@ static void capture_set_dmabuf_format(void *data,
   state->dmabuf_format = format;
 
   state->modifiers_cnt = 0;
-  uint64_t *cur;
+  uint64_t *cur, *elem;
   wl_array_for_each(cur, modifiers) {
-    state->modifiers[state->modifiers_cnt++] = *cur;
+    elem = &state->modifiers[state->modifiers_cnt++];
+    memcpy(elem, cur, sizeof(*elem));
   }
 }
 
@@ -123,7 +124,7 @@ static void capture_set_dmabuf_device(void *data,
   dev_t *cur, *elem;
   wl_array_for_each(cur, devices) {
     elem = &state->devices[state->devices_cnt++];
-    memcpy(elem, cur, sizeof(dev_t));
+    memcpy(elem, cur, sizeof(*cur));
   }
 }
 
