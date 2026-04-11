@@ -380,10 +380,13 @@ int main(int argc, char *argv[]) {
   ctx->pix_fmt = av_tgt_fmt;
   AVRational time_base = {.num = 1, .den = 1};
   ctx->time_base = time_base;
+
+  // seem to be sane defaults? IDK what to define here
   ctx->color_range = AVCOL_RANGE_JPEG;
   ctx->color_primaries = AVCOL_PRI_BT709;
   ctx->color_trc = AVCOL_TRC_BT709;
   ctx->colorspace = AVCOL_SPC_RGB;
+
   ret = avcodec_open2(ctx, codec, &libjxl_opts);
   if (ret < 0) {
     printf("Can't open codec: %d\n", ret);
