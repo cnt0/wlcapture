@@ -16,8 +16,10 @@ PROTO_FILES   := $(PROTO_HEADERS:.h=.c)
 MAIN_OBJECTS := wlcapture.o $(PROTO_OBJECTS)
 MAIN_DEPS := $(MAIN_OBJECTS:.o=.d)
 
-wlcapture: $(MAIN_OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+AUX_HEADERS := capture_frame_listener.h capture_session_listener.h opts.h registry_listener.h shm.h state.h toplevel_listener.h
+
+wlcapture: $(MAIN_OBJECTS) $(AUX_HEADERS)
+	$(CC) $(LDFLAGS) -o $@ $(MAIN_OBJECTS) $(LDLIBS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
