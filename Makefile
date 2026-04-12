@@ -10,7 +10,8 @@ CFLAGS += -std=c23 -MMD -MP $(shell pkg-config --cflags $(PKGCONF_DEPS))
 # LDFLAGS += -fsanitize=address,undefined
 
 PROTO_HEADERS := ext-image-capture-source-v1.h ext-image-copy-capture-v1.h ext-foreign-toplevel-list-v1.h
-PROTO_OBJECTS := ext-image-capture-source-v1.o ext-image-copy-capture-v1.o ext-foreign-toplevel-list-v1.o
+PROTO_OBJECTS := $(PROTO_HEADERS:.h=.o)
+PROTO_FILES   := $(PROTO_HEADERS:.h=.c)
 
 MAIN_OBJECTS := wlcapture.o $(PROTO_OBJECTS)
 MAIN_DEPS := $(MAIN_OBJECTS:.o=.d)
@@ -45,4 +46,4 @@ ext-foreign-toplevel-list-v1.c: $(protos)/staging/ext-foreign-toplevel-list/ext-
 
 .PHONY: clean
 clean:
-	rm -f wlcapture $(MAIN_OBJECTS) $(MAIN_DEPS)
+	rm -f wlcapture $(MAIN_OBJECTS) $(MAIN_DEPS) $(PROTO_HEADERS) $(PROTO_FILES)
