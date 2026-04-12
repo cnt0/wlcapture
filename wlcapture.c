@@ -6,9 +6,6 @@
 #include "state.h"
 #include "toplevel_listener.h"
 
-#include <getopt.h>
-
-#include <libavutil/dict.h>
 #include <libswscale/swscale.h>
 
 static enum AVPixelFormat av_get_desired_format(const AVCodec *codec,

@@ -2,11 +2,7 @@
 
 #define _GNU_SOURCE
 #include <string.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <sys/types.h>
-
-#include <wayland-client.h>
 
 #include "ext-foreign-toplevel-list-v1.h"
 #include "ext-image-capture-source-v1.h"

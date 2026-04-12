@@ -3,7 +3,6 @@
 #define _GNU_SOURCE
 
 #include <getopt.h>
-#include <string.h>
 
 #include <libavcodec/codec.h>
 
