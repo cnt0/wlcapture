@@ -4,7 +4,7 @@ protos ?= $(shell pkg-config --variable=pkgdatadir wayland-protocols)
 PKGCONF_DEPS := wayland-client libavutil libavcodec libswscale
 
 LDLIBS += $(shell pkg-config --libs $(PKGCONF_DEPS))
-CFLAGS += -std=c23 -MMD -MP $(shell pkg-config --cflags $(PKGCONF_DEPS))
+CFLAGS += -std=c11 -MMD -MP $(shell pkg-config --cflags $(PKGCONF_DEPS))
 
 # CFLAGS += -fsanitize=address,undefined
 # LDFLAGS += -fsanitize=address,undefined
